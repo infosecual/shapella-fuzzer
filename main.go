@@ -18,85 +18,120 @@ const (
 	_exitFailure = 1
 )
 
+func makeCheckErr(cmd *cobra.Command) func(err error, msg string) {
+	return func(err error, msg string) {
+		if err != nil {
+			if msg != "" {
+				err = fmt.Errorf("%s: %v", msg, err)
+			}
+			cmd.PrintErr(err)
+			os.Exit(1)
+		}
+	}
+}
+
 // errCheck checks for an error and quits if it is present
 func errCheck(err error, msg string) {
 	if err != nil {
-
 		if msg == "" {
 			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
 		} else {
 			fmt.Fprintf(os.Stderr, "%s: %s\n", msg, err.Error())
 		}
-
 		os.Exit(1)
 	}
 }
 
-func checkValidatorsStatus(vals []*api.Validator) {
+/*
+func validatorsFromMnemonic(mnemonic string) {
+	checkErr := makeCheckErr(cmd)
+
+	ww := NewWalletWriter(accountMax - accountMin)
+	checkErr(selectVals(sourceMnemonic, accountMin, accountMax, ww, insecure), "failed to assign validators")
+
+}
+*/
+
+func printValidatorStatus(validator *api.Validator) {
+	if validator.Status.IsPending() || validator.Status.HasActivated() {
+		fmt.Printf("Index: %d\n", validator.Index)
+	}
+
+	if validator.Status.IsPending() {
+		fmt.Printf("Activation eligibility epoch: %d\n", validator.Validator.ActivationEligibilityEpoch)
+	}
+	if validator.Status.HasActivated() {
+		fmt.Printf("Activation epoch: %d\n", validator.Validator.ActivationEpoch)
+	}
+	fmt.Printf("Public key: %#x\n", validator.Validator.PublicKey)
+
+	fmt.Printf("Status: %v\n", validator.Status)
+	switch validator.Status {
+	case api.ValidatorStateActiveExiting, api.ValidatorStateActiveSlashed:
+		fmt.Printf("Exit epoch: %d\n", validator.Validator.ExitEpoch)
+	case api.ValidatorStateExitedUnslashed, api.ValidatorStateExitedSlashed:
+		fmt.Printf("Withdrawable epoch: %d\n", validator.Validator.WithdrawableEpoch)
+	}
+	fmt.Printf("Balance: %s\n", string2eth.GWeiToString(uint64(validator.Balance), true))
+	if validator.Status.IsActive() {
+		fmt.Printf("Effective balance: %s\n", string2eth.GWeiToString(uint64(validator.Validator.EffectiveBalance), true))
+	}
+
+	fmt.Printf("Withdrawal credentials: %#x\n", validator.Validator.WithdrawalCredentials)
+}
+
+func printValidatorsStatus(vals []*api.Validator) {
 	for _, validator := range vals {
-		if validator.Status.IsPending() || validator.Status.HasActivated() {
-			fmt.Printf("Index: %d\n", validator.Index)
-		}
-
-		if validator.Status.IsPending() {
-			fmt.Printf("Activation eligibility epoch: %d\n", validator.Validator.ActivationEligibilityEpoch)
-		}
-		if validator.Status.HasActivated() {
-			fmt.Printf("Activation epoch: %d\n", validator.Validator.ActivationEpoch)
-		}
-		fmt.Printf("Public key: %#x\n", validator.Validator.PublicKey)
-
-		fmt.Printf("Status: %v\n", validator.Status)
-		switch validator.Status {
-		case api.ValidatorStateActiveExiting, api.ValidatorStateActiveSlashed:
-			fmt.Printf("Exit epoch: %d\n", validator.Validator.ExitEpoch)
-		case api.ValidatorStateExitedUnslashed, api.ValidatorStateExitedSlashed:
-			fmt.Printf("Withdrawable epoch: %d\n", validator.Validator.WithdrawableEpoch)
-		}
-		fmt.Printf("Balance: %s\n", string2eth.GWeiToString(uint64(validator.Balance), true))
-		if validator.Status.IsActive() {
-			fmt.Printf("Effective balance: %s\n", string2eth.GWeiToString(uint64(validator.Validator.EffectiveBalance), true))
-		}
-
-		fmt.Printf("Withdrawal credentials: %#x\n", validator.Validator.WithdrawalCredentials)
+		printValidatorStatus(validator)
 	}
 }
 
+func checkValidatorStatus(vals []string) []*api.Validator {
+	ctx := context.Background()
+
+	eth2Client, err := util.ConnectToBeaconNode(ctx,
+		"",
+		10*time.Second,
+		false)
+	errCheck(err, "Failed to connect to Ethereum 2 beacon node")
+
+	validators, err := util.ParseValidators(ctx, eth2Client.(eth2client.ValidatorsProvider), vals, "head")
+	errCheck(err, "Failed to obtain validator")
+
+	network, err := util.Network(ctx, eth2Client)
+	errCheck(err, "Failed to obtain network")
+	fmt.Sprintf("Network is %s", network)
+	return validators
+}
+
 // THIS COMMAND IS A WIP MOST CODE IS FOR TESTING
-func CheckValidatorStatus() *cobra.Command {
+func Status() *cobra.Command {
+	var sourceMnemonic string
+	var accountMin uint64
+	var accountMax uint64
+
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "check the status of all validators",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			//checkErr := makeCheckErr(cmd)
 			fmt.Println("Checking validator status")
-			//val := "0xaba25098b1f698ff3f159337333c9a895d27fccdf78593d23c6e3b6af1c04a21d7321e2f64895cabab5450e9bada9aa2"
+
+			// place holder until mnemonic to vals is done
 			vals := make([]string, 3)
 			vals[0] = "198344"
 			vals[1] = "198345"
 			vals[2] = "198346"
-			//vals[3] = "0x917f97c3e71c5e317eb3d14d358d1b48d41cb753ab2dad742400936e62461672589d1f72cb9051e758dad817d45fa33f"
 
-			ctx := context.Background()
-
-			eth2Client, err := util.ConnectToBeaconNode(ctx,
-				"",
-				10*time.Second,
-				false)
-			errCheck(err, "Failed to connect to Ethereum 2 beacon node")
-
-			validators, err := util.ParseValidators(ctx, eth2Client.(eth2client.ValidatorsProvider), vals, "head")
-			errCheck(err, "Failed to obtain validator")
-
-			checkValidatorsStatus(validators)
-
-			network, err := util.Network(ctx, eth2Client)
-			errCheck(err, "Failed to obtain network")
-			fmt.Sprintf("Network is %s", network)
-
+			validators := checkValidatorStatus(vals)
+			printValidatorsStatus(validators)
 		},
 	}
+
+	cmd.Flags().StringVar(&sourceMnemonic, "source-mnemonic", "", "The validators mnemonic to source account keys from.")
+	cmd.Flags().Uint64Var(&accountMin, "source-min", 0, "Minimum validator index in HD path range (incl.)")
+	cmd.Flags().Uint64Var(&accountMax, "source-max", 0, "Maximum validator index in HD path range (excl.)")
+
 	return cmd
 }
 
@@ -148,7 +183,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(CheckValidatorStatus())
+	rootCmd.AddCommand(Status())
 	rootCmd.AddCommand(Deposit())
 	rootCmd.AddCommand(BlsExecutionChange())
 	rootCmd.AddCommand(Withdrawal())
