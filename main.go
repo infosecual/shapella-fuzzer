@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 
 	"fmt"
 	"os"
@@ -10,14 +11,19 @@ import (
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	api "github.com/attestantio/go-eth2-client/api/v1"
-	"github.com/tyler-smith/go-bip39"
-
+	hbls "github.com/herumi/bls-eth-go-binary/bls"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"github.com/tyler-smith/go-bip39"
 	util "github.com/wealdtech/ethdo/util"
 	goEthUtil "github.com/wealdtech/go-eth2-util"
 	"github.com/wealdtech/go-string2eth"
 )
+
+func init() {
+	hbls.Init(hbls.BLS12_381)
+	hbls.SetETHmode(hbls.EthModeLatest)
+}
 
 const (
 	_exitSuccess = 0
@@ -61,20 +67,21 @@ func mnemonicToSeed(mnemonic string) (seed []byte, err error) {
 	return bip39.NewSeed(mnemonic, ""), nil
 }
 
-func validatorsFromMnemonic(mnemonic string, accountMin uint64, accountMax uint64) {
+func validatorsFromMnemonic(mnemonic string, accountMin uint64, accountMax uint64) map[string]string {
 	seed, err := mnemonicToSeed(mnemonic)
 	errCheck(err, "failed to generate seed from mnemonic")
+	var validators map[string]string
+	validators = make(map[string]string)
 	for i := accountMin; i < accountMax; i++ {
 		idx := i
 		path := fmt.Sprintf("m/12381/3600/%d/0/0", idx)
-		fmt.Println(mnemonic)
-		fmt.Println(seed)
-		fmt.Println(path)
 		validatorPrivkey, err := goEthUtil.PrivateKeyFromSeedAndPath(seed, path)
 		errCheck(err, "failed to derive validator private key")
-		fmt.Printf("%#x\n", validatorPrivkey.Marshal())
+		pubkey := narrowedPubkey(hex.EncodeToString(validatorPrivkey.PublicKey().Marshal()))
+		validators[fmt.Sprintf("%#x", pubkey)] = hex.EncodeToString(validatorPrivkey.Marshal())
 	}
-	return
+
+	return validators
 }
 
 func printValidatorStatus(validator *api.Validator) {
@@ -111,7 +118,7 @@ func printValidatorsStatus(vals []*api.Validator) {
 	}
 }
 
-func checkValidatorStatus(vals []string) []*api.Validator {
+func checkValidatorsStatus(vals map[string]string) []*api.Validator {
 	ctx := context.Background()
 
 	eth2Client, err := util.ConnectToBeaconNode(ctx,
@@ -119,8 +126,11 @@ func checkValidatorStatus(vals []string) []*api.Validator {
 		10*time.Second,
 		false)
 	errCheck(err, "Failed to connect to Ethereum 2 beacon node")
-
-	validators, err := util.ParseValidators(ctx, eth2Client.(eth2client.ValidatorsProvider), vals, "head")
+	validatorPubKeys := []string{}
+	for valPubKey, _ := range vals {
+		validatorPubKeys = append(validatorPubKeys, valPubKey)
+	}
+	validators, err := util.ParseValidators(ctx, eth2Client.(eth2client.ValidatorsProvider), validatorPubKeys, "head")
 	errCheck(err, "Failed to obtain validator")
 
 	network, err := util.Network(ctx, eth2Client)
@@ -142,16 +152,10 @@ func Status() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Println("Checking validator status")
 
-			// place holder until mnemonic to vals is done
-			vals := make([]string, 3)
-			vals[0] = "198344"
-			vals[1] = "198345"
-			vals[2] = "198346"
+			vals := validatorsFromMnemonic(sourceMnemonic, accountMin, accountMax)
 
-			validatorsFromMnemonic(sourceMnemonic, accountMin, accountMax)
-
-			//validators := checkValidatorStatus(vals)
-			//printValidatorsStatus(validators)
+			validators := checkValidatorsStatus(vals)
+			printValidatorsStatus(validators)
 		},
 	}
 
