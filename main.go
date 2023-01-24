@@ -140,28 +140,45 @@ func checkValidatorsStatus(vals map[string]string) []*api.Validator {
 	return validators
 }
 
-// THIS COMMAND IS A WIP MOST CODE IS FOR TESTING
+func runStatus(sourceMnemonic string, accountMin uint64, accountMax uint64) {
+	fmt.Println("Checking validators' status")
+
+	vals := validatorsFromMnemonic(sourceMnemonic, accountMin, accountMax)
+	validators := checkValidatorsStatus(vals)
+	printValidatorsStatus(validators)
+}
+
+func delayOneSlot() {
+	time.Sleep(time.Duration(12) * time.Second)
+}
+
 func Status() *cobra.Command {
 	var sourceMnemonic string
 	var accountMin uint64
 	var accountMax uint64
+	var onSlot bool
 
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "check the status of all validators",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Checking validator status")
-
-			vals := validatorsFromMnemonic(sourceMnemonic, accountMin, accountMax)
-			validators := checkValidatorsStatus(vals)
-			printValidatorsStatus(validators)
+			if onSlot {
+				fmt.Println("Checking validator status on each slot update")
+				for {
+					runStatus(sourceMnemonic, accountMin, accountMax)
+					delayOneSlot()
+				}
+			} else {
+				runStatus(sourceMnemonic, accountMin, accountMax)
+			}
 		},
 	}
 
 	cmd.Flags().StringVar(&sourceMnemonic, "source-mnemonic", "", "The validators mnemonic to source account keys from.")
 	cmd.Flags().Uint64Var(&accountMin, "source-min", 0, "Minimum validator index in HD path range (incl.)")
 	cmd.Flags().Uint64Var(&accountMax, "source-max", 0, "Maximum validator index in HD path range (excl.)")
+	cmd.Flags().BoolVar(&onSlot, "on-slot", false, "if set the status will be checked on each slot update")
 
 	return cmd
 }
