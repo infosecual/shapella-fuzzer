@@ -78,7 +78,8 @@ func validatorsFromMnemonic(mnemonic string, accountMin uint64, accountMax uint6
 		validatorPrivkey, err := goEthUtil.PrivateKeyFromSeedAndPath(seed, path)
 		errCheck(err, "failed to derive validator private key")
 		pubkey := narrowedPubkey(hex.EncodeToString(validatorPrivkey.PublicKey().Marshal()))
-		validators[fmt.Sprintf("%#x", pubkey)] = hex.EncodeToString(validatorPrivkey.Marshal())
+		pubkey = fmt.Sprintf("0x%s", pubkey)
+		validators[pubkey] = hex.EncodeToString(validatorPrivkey.Marshal())
 	}
 
 	return validators
@@ -153,7 +154,6 @@ func Status() *cobra.Command {
 			fmt.Println("Checking validator status")
 
 			vals := validatorsFromMnemonic(sourceMnemonic, accountMin, accountMax)
-
 			validators := checkValidatorsStatus(vals)
 			printValidatorsStatus(validators)
 		},
