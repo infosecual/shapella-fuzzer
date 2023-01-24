@@ -2,14 +2,20 @@ package main
 
 import (
 	"context"
+
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	eth2client "github.com/attestantio/go-eth2-client"
 	api "github.com/attestantio/go-eth2-client/api/v1"
+	"github.com/tyler-smith/go-bip39"
+
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/wealdtech/ethdo/util"
+	util "github.com/wealdtech/ethdo/util"
+	goEthUtil "github.com/wealdtech/go-eth2-util"
 	"github.com/wealdtech/go-string2eth"
 )
 
@@ -42,15 +48,34 @@ func errCheck(err error, msg string) {
 	}
 }
 
-/*
-func validatorsFromMnemonic(mnemonic string) {
-	checkErr := makeCheckErr(cmd)
-
-	ww := NewWalletWriter(accountMax - accountMin)
-	checkErr(selectVals(sourceMnemonic, accountMin, accountMax, ww, insecure), "failed to assign validators")
-
+// Narrow pubkeys: we don't want 0xAb... to be different from ab...
+func narrowedPubkey(pub string) string {
+	return strings.TrimPrefix(strings.ToLower(pub), "0x")
 }
-*/
+
+func mnemonicToSeed(mnemonic string) (seed []byte, err error) {
+	mnemonic = strings.TrimSpace(mnemonic)
+	if !bip39.IsMnemonicValid(mnemonic) {
+		return nil, errors.New("mnemonic is not valid")
+	}
+	return bip39.NewSeed(mnemonic, ""), nil
+}
+
+func validatorsFromMnemonic(mnemonic string, accountMin uint64, accountMax uint64) {
+	seed, err := mnemonicToSeed(mnemonic)
+	errCheck(err, "failed to generate seed from mnemonic")
+	for i := accountMin; i < accountMax; i++ {
+		idx := i
+		path := fmt.Sprintf("m/12381/3600/%d/0/0", idx)
+		fmt.Println(mnemonic)
+		fmt.Println(seed)
+		fmt.Println(path)
+		validatorPrivkey, err := goEthUtil.PrivateKeyFromSeedAndPath(seed, path)
+		errCheck(err, "failed to derive validator private key")
+		fmt.Printf("%#x\n", validatorPrivkey.Marshal())
+	}
+	return
+}
 
 func printValidatorStatus(validator *api.Validator) {
 	if validator.Status.IsPending() || validator.Status.HasActivated() {
@@ -123,8 +148,10 @@ func Status() *cobra.Command {
 			vals[1] = "198345"
 			vals[2] = "198346"
 
-			validators := checkValidatorStatus(vals)
-			printValidatorsStatus(validators)
+			validatorsFromMnemonic(sourceMnemonic, accountMin, accountMax)
+
+			//validators := checkValidatorStatus(vals)
+			//printValidatorsStatus(validators)
 		},
 	}
 
